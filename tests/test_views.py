@@ -136,7 +136,6 @@ class AddFromURLViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        data = response.json()
 
         # Should create an image
         self.assertTrue(Image.objects.filter(title="test").exists())
@@ -515,7 +514,6 @@ class AddFromURLViewTests(TestCase):
             self.url, {"url": "https://example.com/duplicate.jpg", "collection": self.collection.id}
         )
 
-        data = response.json()
         # Count should remain the same if duplicate is detected and removed
         final_count = Image.objects.count()
 
