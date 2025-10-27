@@ -103,7 +103,6 @@ class AddFromURLViewTests(TestCase):
         self.assertIn("header_title", context)
         self.assertEqual(str(context["header_title"]), "Add image from URL")
 
-
     def test_missing_url_returns_error(self):
         """POST without URL should return error."""
         response = self.client.post(self.url, {})

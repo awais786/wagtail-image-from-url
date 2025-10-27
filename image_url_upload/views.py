@@ -27,7 +27,6 @@ MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB in bytes
 logger = logging.getLogger(__name__)
 
 
-
 class CustomImageIndexView(ImageIndexView):
     """
     Custom image index view with additional "Add from URL" button.
@@ -72,7 +71,6 @@ class AddFromURLView(AddView):
         ]
         context["header_title"] = _("Add image from URL")
         return context
-
 
     def post(self, request):
         """
