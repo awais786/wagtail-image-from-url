@@ -12,7 +12,7 @@ from django.utils.translation import gettext_lazy as _
 from wagtail import hooks
 from wagtail.admin.menu import MenuItem
 
-from .views import  CustomImageIndexView, AddFromURLView
+from .views import CustomImageIndexView, AddFromURLView
 
 logger = logging.getLogger(__name__)
 
