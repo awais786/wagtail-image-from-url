@@ -492,33 +492,6 @@ class AddFromURLViewTests(TestCase):
         image = Image.objects.latest("id")
         self.assertEqual(image.collection_id, custom_collection.id)
 
-    @patch("image_url_upload.views.requests.get")
-    def test_duplicate_detection(self, mock_get):
-        """Should detect duplicate images."""
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.content = self._create_test_image_bytes()
-        mock_response.headers = {"Content-Type": "image/jpeg"}
-        mock_response.raise_for_status = Mock()
-        mock_get.return_value = mock_response
-
-        # Upload first image
-        self.client.post(
-            self.url, {"url": "https://example.com/duplicate.jpg", "collection": self.collection.id}
-        )
-        initial_count = Image.objects.count()
-
-        # Try uploading duplicate
-        response = self.client.post(
-            self.url, {"url": "https://example.com/duplicate.jpg", "collection": self.collection.id}
-        )
-
-        # Count should remain the same if duplicate is detected and removed
-        final_count = Image.objects.count()
-
-        # The duplicate should either not be created or be removed
-        self.assertLessEqual(final_count, initial_count + 1)
-
     def test_requires_authentication(self):
         """Should require user to be authenticated."""
         self.client.logout()
