@@ -179,6 +179,183 @@ class AddFromURLViewTests(TestCase):
         self.assertTrue(Image.objects.filter(title="photo").exists())
 
     @patch("image_url_upload.views.requests.get")
+    def test_invalid_content_type(self, mock_get):
+        """Should reject files with invalid content types."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.content = b"This is not an image"
+        mock_response.headers = {"Content-Type": "application/pdf"}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        response = self.client.post(self.url, {"url": "https://example.com/document.pdf"})
+        data = response.json()
+
+        self.assertFalse(data["success"])
+        self.assertIn("Invalid file type", data["error_message"])
+
+    @patch("image_url_upload.views.requests.get")
+    def test_invalid_content_type_text_html(self, mock_get):
+        """Should reject HTML content."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.content = b"<html><body>Not an image</body></html>"
+        mock_response.headers = {"Content-Type": "text/html"}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        response = self.client.post(self.url, {"url": "https://example.com/page.html"})
+        data = response.json()
+
+        self.assertFalse(data["success"])
+        self.assertIn("Invalid file type", data["error_message"])
+
+    @patch("image_url_upload.views.requests.get")
+    def test_content_type_with_charset(self, mock_get):
+        """Should handle content types with charset parameters."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.content = self._create_test_image_bytes()
+        mock_response.headers = {"Content-Type": "image/jpeg; charset=utf-8"}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        response = self.client.post(
+            self.url,
+            {"url": "https://example.com/test.jpg", "collection": self.collection.id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(Image.objects.filter(title="test").exists())
+
+    @patch("image_url_upload.views.requests.get")
+    def test_file_size_exceeds_limit(self, mock_get):
+        """Should reject files larger than the maximum size."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        # Create a content larger than 10 MB
+        mock_response.content = b"x" * (11 * 1024 * 1024)  # 11 MB
+        mock_response.headers = {"Content-Type": "image/jpeg"}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        response = self.client.post(self.url, {"url": "https://example.com/huge.jpg"})
+        data = response.json()
+
+        self.assertFalse(data["success"])
+        self.assertIn("size exceeds", data["error_message"].lower())
+        self.assertIn("10", data["error_message"])
+
+    @patch("image_url_upload.views.requests.get")
+    def test_file_size_at_limit(self, mock_get):
+        """Should accept files exactly at the size limit."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        # Create a content exactly at 10 MB (should pass)
+        mock_response.content = b"x" * (10 * 1024 * 1024)
+        mock_response.headers = {"Content-Type": "image/jpeg"}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        response = self.client.post(
+            self.url,
+            {"url": "https://example.com/maxsize.jpg", "collection": self.collection.id},
+        )
+
+        # Note: This might fail form validation because content isn't a valid image,
+        # but it should pass the size validation
+        data = response.json()
+        # Check that we didn't get a file size error
+        if not data.get("success", False):
+            self.assertNotIn("size exceeds", data.get("error_message", "").lower())
+
+    @patch("image_url_upload.views.requests.get")
+    def test_empty_file(self, mock_get):
+        """Should reject empty files."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.content = b""  # Empty content
+        mock_response.headers = {"Content-Type": "image/jpeg"}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        response = self.client.post(self.url, {"url": "https://example.com/empty.jpg"})
+        data = response.json()
+
+        self.assertFalse(data["success"])
+        self.assertIn("empty", data["error_message"].lower())
+
+    @patch("image_url_upload.views.requests.get")
+    def test_webp_format_accepted(self, mock_get):
+        """Should accept WEBP images."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.content = self._create_test_webp_bytes()
+        mock_response.headers = {"Content-Type": "image/webp"}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        response = self.client.post(
+            self.url,
+            {"url": "https://example.com/photo.webp", "collection": self.collection.id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(Image.objects.filter(title="photo").exists())
+
+    @patch("image_url_upload.views.requests.get")
+    def test_gif_format_accepted(self, mock_get):
+        """Should accept GIF images."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.content = self._create_test_gif_bytes()
+        mock_response.headers = {"Content-Type": "image/gif"}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        response = self.client.post(
+            self.url,
+            {"url": "https://example.com/animated.gif", "collection": self.collection.id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(Image.objects.filter(title="animated").exists())
+
+    @patch("image_url_upload.views.requests.get")
+    def test_content_type_case_insensitive(self, mock_get):
+        """Should handle content types case-insensitively."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.content = self._create_test_image_bytes()
+        mock_response.headers = {"Content-Type": "IMAGE/JPEG"}  # Uppercase
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        response = self.client.post(
+            self.url,
+            {"url": "https://example.com/test.jpg", "collection": self.collection.id},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(Image.objects.filter(title="test").exists())
+
+    @patch("image_url_upload.views.requests.get")
+    def test_missing_content_type_header(self, mock_get):
+        """Should reject requests with missing Content-Type header."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.content = self._create_test_image_bytes()
+        mock_response.headers = {}  # No Content-Type
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        response = self.client.post(self.url, {"url": "https://example.com/test.jpg"})
+        data = response.json()
+
+        self.assertFalse(data["success"])
+        self.assertIn("Invalid file type", data["error_message"])
+
+    @patch("image_url_upload.views.requests.get")
     def test_timeout_error(self, mock_get):
         """Should handle timeout errors gracefully."""
         mock_get.side_effect = Timeout("Connection timeout")
@@ -423,5 +600,24 @@ class AddFromURLViewTests(TestCase):
             b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
             b'\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01'
             b'\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82'
+        )
+
+    @staticmethod
+    def _create_test_webp_bytes():
+        """Create a minimal valid WEBP image in bytes."""
+        # Minimal valid WEBP (1x1 pixel)
+        return (
+            b'RIFF$\x00\x00\x00WEBPVP8 \x18\x00\x00\x000\x01\x00\x9d\x01*'
+            b'\x01\x00\x01\x00\x01@\x00\xfe\xfb\x94\x00\x00'
+        )
+
+    @staticmethod
+    def _create_test_gif_bytes():
+        """Create a minimal valid GIF image in bytes."""
+        # Minimal valid GIF (1x1 pixel)
+        return (
+            b'GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff'
+            b'\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,'
+            b'\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;'
         )
 
