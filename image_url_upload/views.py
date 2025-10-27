@@ -14,6 +14,16 @@ from wagtail.admin.widgets.button import HeaderButton
 from wagtail.images.views.images import IndexView as ImageIndexView
 from wagtail.images.views.multiple import AddView
 
+ALLOWED_CONTENT_TYPES = {
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/gif",
+    "image/bmp",
+    "image/webp",
+}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB in bytes
+
 logger = logging.getLogger(__name__)
 
 
@@ -92,6 +102,39 @@ class AddFromURLView(AddView):
             )
             response.raise_for_status()
 
+            # Validate content type
+            content_type = response.headers.get("Content-Type", "").split(";")[0].strip().lower()
+            if content_type not in ALLOWED_CONTENT_TYPES:
+                logger.warning(f"Invalid content type for {image_url}: {content_type}")
+                return JsonResponse(
+                    {
+                        "success": False,
+                        "error_message": _("Invalid file type. Allowed types: JPEG, PNG, GIF, BMP, WEBP."),
+                    }
+                )
+
+            # Validate file size
+            file_size = len(response.content)
+            if file_size > MAX_FILE_SIZE:
+                logger.warning(f"File too large for {image_url}: {file_size} bytes")
+                return JsonResponse(
+                    {
+                        "success": False,
+                        "error_message": _("File size exceeds maximum allowed size of {size} MB.").format(
+                            size=MAX_FILE_SIZE // (1024 * 1024)
+                        ),
+                    }
+                )
+
+            if file_size == 0:
+                logger.warning(f"Empty file downloaded from {image_url}")
+                return JsonResponse(
+                    {
+                        "success": False,
+                        "error_message": _("The downloaded file is empty."),
+                    }
+                )
+
             # Extract filename from URL
             filename = os.path.basename(image_url.split("?")[0]) or "image.jpg"
 
@@ -99,7 +142,7 @@ class AddFromURLView(AddView):
             file = SimpleUploadedFile(
                 name=filename,
                 content=response.content,
-                content_type=response.headers.get("Content-Type"),
+                content_type=content_type,
             )
 
             # Use Wagtail's upload form for validation
