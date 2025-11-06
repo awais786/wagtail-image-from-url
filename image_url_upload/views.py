@@ -14,6 +14,8 @@ from wagtail.admin.widgets.button import HeaderButton
 from wagtail.images.views.images import IndexView as ImageIndexView
 from wagtail.images.views.multiple import AddView
 
+from .utils import validate_url_security
+
 
 ALLOWED_CONTENT_TYPES = {
     "image/jpeg",
@@ -90,6 +92,16 @@ class AddFromURLView(AddView):
                 {
                     "success": False,
                     "error_message": _("Please provide a URL."),
+                }
+            )
+
+        # Validate URL security (domain allow/block lists and SSRF protection)
+        is_valid, error_message = validate_url_security(image_url)
+        if not is_valid:
+            return JsonResponse(
+                {
+                    "success": False,
+                    "error_message": error_message,
                 }
             )
 

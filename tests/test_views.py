@@ -5,7 +5,7 @@ Test cases for image URL upload views.
 from unittest.mock import patch, Mock
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, RequestFactory
+from django.test import TestCase, RequestFactory, override_settings
 from django.urls import reverse
 from requests.exceptions import Timeout, HTTPError, RequestException
 from wagtail.images import get_image_model
@@ -412,3 +412,122 @@ class AddFromURLViewTests(TestCase):
             b'\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82'
         )
 
+
+class DomainValidationIntegrationTests(TestCase):
+    """Integration tests for domain validation in views."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.user = User.objects.create_superuser(
+            username="admin", email="admin@example.com", password="password"
+        )
+        self.client.login(username="admin", password="password")
+        self.url = reverse("add_from_url")
+        self.collection = Collection.get_first_root_node()
+
+    @override_settings(WAGTAIL_IMAGE_URL_ALLOWED_DOMAINS=['example.com', 'trusted.com'])
+    @patch("image_url_upload.views.requests.get")
+    def test_allowed_domain_succeeds(self, mock_get):
+        """Should allow domains in the allowed list."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.content = self._create_test_image_bytes()
+        mock_response.headers = {"Content-Type": "image/jpeg"}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        response = self.client.post(
+            self.url,
+            {"url": "https://example.com/image.jpg", "collection": self.collection.id}
+        )
+
+        # Should not have domain validation error
+        data = response.json()
+        error_message = data.get("error_message", "")
+        self.assertNotIn("not in the allowed domains list", error_message)
+        self.assertNotIn("is blocked", error_message)
+
+    @override_settings(WAGTAIL_IMAGE_URL_ALLOWED_DOMAINS=['example.com', 'trusted.com'])
+    def test_not_allowed_domain_fails(self):
+        """Should block domains not in the allowed list."""
+        response = self.client.post(
+            self.url,
+            {"url": "https://notallowed.com/image.jpg", "collection": self.collection.id}
+        )
+
+        data = response.json()
+        self.assertFalse(data.get("success"))
+        self.assertIn("not in the allowed domains list", data.get("error_message"))
+
+    @override_settings(WAGTAIL_IMAGE_URL_BLOCKED_DOMAINS=['spam.com', 'malicious.com'])
+    def test_blocked_domain_fails(self):
+        """Should block domains in the blocked list."""
+        response = self.client.post(
+            self.url,
+            {"url": "https://spam.com/image.jpg", "collection": self.collection.id}
+        )
+
+        data = response.json()
+        self.assertFalse(data.get("success"))
+        self.assertIn("is blocked", data.get("error_message"))
+
+    @override_settings(WAGTAIL_IMAGE_URL_BLOCKED_DOMAINS=['spam.com'])
+    @patch("image_url_upload.views.requests.get")
+    def test_not_blocked_domain_succeeds(self, mock_get):
+        """Should allow domains not in the blocked list."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.content = self._create_test_image_bytes()
+        mock_response.headers = {"Content-Type": "image/jpeg"}
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        response = self.client.post(
+            self.url,
+            {"url": "https://example.com/image.jpg", "collection": self.collection.id}
+        )
+
+        # Should not have domain validation error
+        data = response.json()
+        error_message = data.get("error_message", "")
+        self.assertNotIn("not in the allowed domains list", error_message)
+        self.assertNotIn("is blocked", error_message)
+
+    @override_settings(WAGTAIL_IMAGE_URL_PREVENT_SSRF=True)
+    def test_private_ip_blocked_with_ssrf_protection(self):
+        """Should block private IP addresses when SSRF protection is enabled."""
+        response = self.client.post(
+            self.url,
+            {"url": "http://192.168.1.1/image.jpg", "collection": self.collection.id}
+        )
+
+        data = response.json()
+        self.assertFalse(data.get("success"))
+        self.assertIn("private IP", data.get("error_message"))
+
+    @override_settings(WAGTAIL_IMAGE_URL_PREVENT_SSRF=True)
+    def test_localhost_blocked_with_ssrf_protection(self):
+        """Should block localhost when SSRF protection is enabled."""
+        response = self.client.post(
+            self.url,
+            {"url": "http://localhost/image.jpg", "collection": self.collection.id}
+        )
+
+        data = response.json()
+        self.assertFalse(data.get("success"))
+        self.assertIn("private IP", data.get("error_message"))
+
+    @staticmethod
+    def _create_test_image_bytes():
+        """Create a minimal valid JPEG image in bytes."""
+        # Minimal valid JPEG (1x1 pixel)
+        return (
+            b'\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00'
+            b'\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t\x08\n\x0c'
+            b'\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a\x1f\x1e\x1d\x1a\x1c'
+            b'\x1c $.\' ",#\x1c\x1c(7),01444\x1f\'9=82<.342\xff\xc0\x00\x0b\x08\x00'
+            b'\x01\x00\x01\x01\x01\x11\x00\xff\xc4\x00\x14\x00\x01\x00\x00\x00\x00'
+            b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\t\xff\xc4\x00\x14\x10\x01'
+            b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff'
+            b'\xda\x00\x08\x01\x01\x00\x00?\x00\x7f\x00\xff\xd9'
+        )
